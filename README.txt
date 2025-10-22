@@ -11,3 +11,5 @@ De app opent dan in je browser op http://localhost:3000
 
 Gebruik de organisatiecode: VRIJWILLIG123
 Gebruik admin code (optioneel): ADMIN123
+
+Automatische Firebase deploy test – (22/10/2025)
