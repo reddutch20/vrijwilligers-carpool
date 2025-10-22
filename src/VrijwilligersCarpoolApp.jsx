@@ -23,46 +23,61 @@ export default function VrijwilligersCarpoolApp() {
   });
 
   const ORG_CODE = "VRIJWILLIG123";
-  const ADMIN_CODE = "ADMINDutch20";
   const [organisatieCode, setOrganisatieCode] = useState("");
   const [admin, setAdmin] = useState(false);
 
-  // 🔹 Ophalen van ritten
+  // 🔹 Ritten ophalen zodra iemand inlogt
   useEffect(() => {
     if (isIngelogd) laadRitten();
   }, [isIngelogd]);
 
   async function laadRitten() {
-    const q = query(collection(db, "ritten"), orderBy("datum"));
-    const snapshot = await getDocs(q);
-    const data = snapshot.docs.map((d) => ({ id: d.id, ...d.data() }));
-    setRitten(data);
+    try {
+      const q = query(collection(db, "ritten"), orderBy("datum"));
+      const snapshot = await getDocs(q);
+      const data = snapshot.docs.map((d) => ({ id: d.id, ...d.data() }));
+      setRitten(data);
+    } catch (error) {
+      console.error("Fout bij laden van ritten:", error);
+    }
   }
 
-  // 🔹 Nieuwe rit toevoegen
+  // 🔹 Rit toevoegen
   async function ritToevoegen() {
     if (!nieuweRit.bestemming || !nieuweRit.datum || !nieuweRit.stoelen) return;
-    await addDoc(collection(db, "ritten"), {
-      ...nieuweRit,
-      aangemaaktDoor: gebruiker,
-      datum: new Date(nieuweRit.datum).toISOString(),
-      stoelenVrij: parseInt(nieuweRit.stoelen, 10),
-      deelnemers: [],
-      status: "In afwachting",
-    });
-    setNieuweRit({ bestemming: "", datum: "", stoelen: "" });
-    laadRitten();
+    try {
+      await addDoc(collection(db, "ritten"), {
+        ...nieuweRit,
+        aangemaaktDoor: gebruiker,
+        datum: new Date(nieuweRit.datum).toISOString(),
+        stoelenVrij: parseInt(nieuweRit.stoelen, 10),
+        deelnemers: [],
+        status: "In afwachting",
+      });
+      setNieuweRit({ bestemming: "", datum: "", stoelen: "" });
+      laadRitten();
+    } catch (error) {
+      alert("Kon rit niet toevoegen. Controleer verbinding of rechten.");
+      console.error(error);
+    }
   }
 
   // 🔹 Rit verwijderen (alleen admin)
   async function ritVerwijderen(id) {
-    if (!admin) return;
+    if (!admin) {
+      alert("Alleen admins mogen ritten verwijderen.");
+      return;
+    }
     await deleteDoc(doc(db, "ritten", id));
     laadRitten();
   }
 
-  // 🔹 Rit goedkeuren / afwijzen (admin)
+  // 🔹 Rit goedkeuren / afwijzen (alleen admin)
   async function ritStatusBijwerken(id, nieuweStatus) {
+    if (!admin) {
+      alert("Alleen admins mogen de status wijzigen.");
+      return;
+    }
     const ref = doc(db, "ritten", id);
     await updateDoc(ref, { status: nieuweStatus });
     laadRitten();
@@ -70,8 +85,10 @@ export default function VrijwilligersCarpoolApp() {
 
   // 🔹 Aanmelden voor rit
   async function meldAanVoorRit(rit) {
-    if (rit.deelnemers.includes(gebruiker)) return alert("Je bent al aangemeld!");
-    if (rit.stoelenVrij <= 0) return alert("Geen stoelen meer beschikbaar!");
+    if (rit.deelnemers.includes(gebruiker))
+      return alert("Je bent al aangemeld!");
+    if (rit.stoelenVrij <= 0)
+      return alert("Geen stoelen meer beschikbaar!");
     const ref = doc(db, "ritten", rit.id);
     await updateDoc(ref, {
       deelnemers: [...rit.deelnemers, gebruiker],
@@ -80,52 +97,40 @@ export default function VrijwilligersCarpoolApp() {
     laadRitten();
   }
 
-// 🔹 Login (met Firebase admincontrole)
-async function login() {
-  if (!gebruiker || !organisatieCode) return;
+  // 🔹 Login met admincontrole via Firebase
+  async function login() {
+    if (!gebruiker || !organisatieCode) return;
+    if (organisatieCode !== ORG_CODE) {
+      alert("Verkeerde organisatiecode");
+      return;
+    }
 
-  if (organisatieCode !== ORG_CODE) {
-    alert("Verkeerde organisatiecode");
-    return;
+    try {
+      const q = query(collection(db, "admins"));
+      const snapshot = await getDocs(q);
+      const adminNamen = snapshot.docs.map((d) => d.data().naam?.toLowerCase());
+      const isAdminGebruiker = adminNamen.includes(gebruiker.toLowerCase());
+
+      setIsIngelogd(true);
+      setAdmin(isAdminGebruiker);
+
+      if (isAdminGebruiker)
+        console.log("✅ Ingelogd als admin:", gebruiker);
+    } catch (error) {
+      console.error("Fout bij admincontrole:", error);
+      alert("Kon geen verbinding maken met Firebase.");
+    }
   }
 
-  try {
-    // 🔍 Ophalen van admins
-    const q = query(collection(db, "admins"));
-    const snapshot = await getDocs(q);
-
-    // 👇 Log wat we vinden (voor controle)
-    const adminNamen = snapshot.docs.map((d) => {
-      const naam = d.data().naam?.trim().toLowerCase();
-      console.log("📂 Gevonden admin:", naam);
-      return naam;
-    });
-
-    const isAdminGebruiker = adminNamen.includes(gebruiker.trim().toLowerCase());
-    console.log("✅ Ingelogde naam:", gebruiker.trim().toLowerCase());
-    console.log("📋 Adminlijst:", adminNamen);
-    console.log("👑 Is admin:", isAdminGebruiker);
-
-    setIsIngelogd(true);
-    setAdmin(isAdminGebruiker);
-  } catch (error) {
-    console.error("🔥 Fout bij admincontrole:", error);
+  // 🔹 Uitloggen
+  function logout() {
+    setGebruiker("");
+    setOrganisatieCode("");
+    setIsIngelogd(false);
+    setAdmin(false);
   }
-}
 
-
-
-
-// 🔹 Uitloggen
-function logout() {
-  setGebruiker("");
-  setOrganisatieCode("");
-  setIsIngelogd(false);
-  setAdmin(false);
-}
-
-
-  // 🔹 UI als niet ingelogd
+  // 🔹 UI voor login
   if (!isIngelogd) {
     return (
       <div className="flex flex-col items-center justify-center min-h-screen bg-gray-100 text-center">
@@ -154,34 +159,31 @@ function logout() {
     );
   }
 
-  // 🔹 UI als ingelogd
+  // 🔹 UI voor ingelogde gebruiker
   return (
     <div className="p-4 max-w-3xl mx-auto">
       <h1 className="text-3xl font-bold text-center text-blue-700 mb-6">
         Vrijwilligers Carpool
       </h1>
 
-{/* Admin banner */}
-{admin && (
-  <div className="bg-green-600 text-white text-center py-2 mb-4 rounded shadow-md">
-    👑 Admin-paneel actief — je hebt beheerdersrechten
-  </div>
-)}
+      {admin && (
+        <div className="bg-green-600 text-white text-center py-2 mb-4 rounded shadow-md">
+          👑 Admin-paneel actief — je hebt beheerdersrechten
+        </div>
+      )}
 
-
-<div className="flex flex-col items-center mb-4">
-  <p className="text-gray-600">
-    Ingelogd als: <b>{gebruiker}</b>{" "}
-    {admin && <span className="text-sm text-green-600">(admin)</span>}
-  </p>
-  <button
-    onClick={logout}
-    className="mt-2 bg-gray-500 hover:bg-gray-600 text-white px-3 py-1 rounded"
-  >
-    Uitloggen
-  </button>
-</div>
-
+      <div className="flex flex-col items-center mb-4">
+        <p className="text-gray-600">
+          Ingelogd als: <b>{gebruiker}</b>{" "}
+          {admin && <span className="text-sm text-green-600">(admin)</span>}
+        </p>
+        <button
+          onClick={logout}
+          className="mt-2 bg-gray-500 hover:bg-gray-600 text-white px-3 py-1 rounded"
+        >
+          Uitloggen
+        </button>
+      </div>
 
       {/* Nieuwe rit aanmaken */}
       <div className="bg-white shadow-md p-4 rounded mb-6">
@@ -219,7 +221,7 @@ function logout() {
         </button>
       </div>
 
-      {/* Lijst van ritten */}
+      {/* Lijst met ritten */}
       <h2 className="text-xl font-semibold mb-3">Beschikbare ritten</h2>
       {ritten.length === 0 && (
         <p className="text-gray-500">Nog geen ritten toegevoegd.</p>
@@ -265,33 +267,35 @@ function logout() {
                 </button>
               )}
 
-           {admin && (
-  <div className="border-t border-gray-300 mt-2 pt-2">
-    <p className="text-xs text-gray-500 mb-1 text-center">Admin-acties</p>
-    <div className="flex flex-wrap gap-2 justify-center">
-      <button
-        onClick={() => ritStatusBijwerken(r.id, "Goedgekeurd")}
-        className="bg-green-600 hover:bg-green-700 text-white px-3 py-1 rounded"
-      >
-        Goedkeuren
-      </button>
-      <button
-        onClick={() => ritStatusBijwerken(r.id, "Afgewezen")}
-        className="bg-red-600 hover:bg-red-700 text-white px-3 py-1 rounded"
-      >
-        Afwijzen
-      </button>
-      <button
-        onClick={() => ritVerwijderen(r.id)}
-        className="bg-gray-500 hover:bg-gray-600 text-white px-3 py-1 rounded"
-      >
-        Verwijderen
-      </button>
-    </div>
-  </div>
-)}
-
-
+              {admin && (
+                <div className="border-t border-gray-300 mt-2 pt-2">
+                  <p className="text-xs text-gray-500 mb-1 text-center">
+                    Admin-acties
+                  </p>
+                  <div className="flex flex-wrap gap-2 justify-center">
+                    <button
+                      onClick={() =>
+                        ritStatusBijwerken(r.id, "Goedgekeurd")
+                      }
+                      className="bg-green-600 hover:bg-green-700 text-white px-3 py-1 rounded"
+                    >
+                      Goedkeuren
+                    </button>
+                    <button
+                      onClick={() => ritStatusBijwerken(r.id, "Afgewezen")}
+                      className="bg-red-600 hover:bg-red-700 text-white px-3 py-1 rounded"
+                    >
+                      Afwijzen
+                    </button>
+                    <button
+                      onClick={() => ritVerwijderen(r.id)}
+                      className="bg-gray-500 hover:bg-gray-600 text-white px-3 py-1 rounded"
+                    >
+                      Verwijderen
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
           </div>
         </div>
@@ -299,4 +303,3 @@ function logout() {
     </div>
   );
 }
-
